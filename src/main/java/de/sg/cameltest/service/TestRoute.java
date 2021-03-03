@@ -1,6 +1,8 @@
 package de.sg.cameltest.service;
 
+import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.processor.aggregate.AbstractListAggregationStrategy;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -13,23 +15,26 @@ public class TestRoute extends RouteBuilder {
     @Override
     public void configure() throws Exception {
         /* @formatter:off */
-        onException(RuntimeException.class, Exception.class)
-          .handled(true)
-          .choice()
-            .when(header(TestProcessor.HEADER).isNull())
-              .to(ENDPOINT)
-            .otherwise()
-              .setBody(header(TestProcessor.HEADER))
-              // after removing the following line everything works fine
-              .split(body())
-              .to(ENDPOINT)
-            .end()
-            .markRollbackOnly()
-            .stop()
-        .end();
+        from(FROM)
+          // when deactivate transacted everything is fine an MyStrategy is used.
+          // when activate transacted, MyStrategy is completly ignored.
+          .transacted()
+          .bean(IntegerProcessor.class)
+          .split(body(), new MyStrategy())
+            .bean(StringConverter.class)
+          .end()
+          .split(body(), new MyStrategy())
+            .bean(LogTypeProcessor.class)
+            .to(ENDPOINT);
         /* @formatter:on */
+    }
 
-        from(FROM).bean(TestProcessor.class).setBody(header(TestProcessor.HEADER)).split().body().to(ENDPOINT);
+    public final class MyStrategy extends AbstractListAggregationStrategy<String> {
+
+        @Override
+        public String getValue(final Exchange exchange) {
+            return exchange.getIn().getBody(String.class);
+        }
     }
 
 }
